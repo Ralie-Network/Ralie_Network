@@ -18,17 +18,17 @@ ERC20 Token, with the addition of symbol, name and decimals and assisted token t
 */
 contract RIEToken is ERC20Permit, Ownable {
     using SafeMath for uint256;
-    //Define total ICO Supply
-    uint256 private _ICOSupply = 3.5e8 ether;
+    //Define total Distribution Pilot Program Supply
+    uint256 private _DistPilotSupply = 5.5e8 ether;
     
     //Define total devTeam allocated token funds
-    uint256 private _devTeamSupply = 1.5e8 ether;
+    uint256 private _devTeamSupply = 3.5e8 ether;
     
     //Define total bounty allocated token funds
-    uint256 private _bountySupply = 1.0e8 ether;
+    uint256 private _bountySupply = 0.5e8 ether;
 
     //Define owner address funds 
-    uint256 private _ownerSupply = 1.9e9 ether;
+    uint256 private _ownerSupply = 1.55e9 ether;
     
     // ------------------------------------------------------------------------
     // Constructor
@@ -37,7 +37,7 @@ contract RIEToken is ERC20Permit, Ownable {
                  
         transferOwnership(_owner);
         _mint(_owner, _ownerSupply);
-        _mint(0x0D82fB6990d7dC8A22f79623c3A662db099a50be, _ICOSupply);
+        _mint(0x0D82fB6990d7dC8A22f79623c3A662db099a50be, _DistPilotSupply);
         _mint(0xc307c195b7380656598e992cf104cF1671B35476, _devTeamSupply);
         _mint(0x801e2ab2197c1a13bB39335de47211a447Ff875F, _bountySupply);
 
