@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.12.10",
-    "@truffle/hdwallet-provider": "^1.2.1",
+    "@truffle/hdwallet-provider": "^1.2.2",
     "openzeppelin-solidity": "^3.3.0"
   }
 }
