@@ -4,15 +4,16 @@
 PermaVault is based on TokenVault https://gist.github.com/rstormsf/7cfb0c6b7a835c0c67b4a394b4fd9383
 
 The PermaVault, different from a VestingVault, will lock a token ammount and release
-the token to the treasury wallet during a period of time.
+the token to the treasury wallet during a period of time. Treasury wallet still has to be parsed 
+on lock.
 
-These tokens will be released daily during a timespam that starts at _vestingCliffInDays
-and ends at _vestingDurationInDays
+These tokens will be released daily during a timespam that starts at _lockCliffInDays
+and ends at _lockDurationInDays
 
 Once the token ammount is deposited to PermaVault, it can't be reverted. Not even by
 the contract owner.
 
-The tokens released daily is equal to (_amount)/(_vestingDurationInDays - _vestingCliffInDays)
+The tokens released daily is equal to (_amount)/(_lockDurationInDays - _lockCliffInDays)
 */
 
 pragma solidity >=0.6.0 <0.8.0;
@@ -25,10 +26,10 @@ contract PermaVault is Ownable {
     using SafeMath for uint256;
     using SafeMath for uint16;
 
-    struct Grant {
+    struct Lock {
         uint256 startTime;
         uint256 amount;
-        uint16 vestingDuration;
+        uint16 lockDuration;
         uint16 daysClaimed;
         uint256 totalClaimed;
         address recipient;
@@ -36,11 +37,10 @@ contract PermaVault is Ownable {
 
     event Deposit(address indexed recipient);
     event tokenReleased(address indexed recipient, uint256 amountClaimed);
-    // event GrantRevoked(address recipient, uint256 amountVested, uint256 amountNotVested);
 
     ERC20 public token;
     
-    mapping (address => Grant) private tokenGrants;
+    mapping (address => Lock) private tokenLocks;
 
     constructor(ERC20 _token) {
         require(address(_token) != address(0));
@@ -50,112 +50,84 @@ contract PermaVault is Ownable {
     function addTokentoVault(
         address _recipient,
         uint256 _amount,
-        uint16 _vestingDurationInDays,
-        uint16 _vestingCliffInDays    
+        uint16 _lockDurationInDays,
+        uint16 _lockCliffInDays    
     ) 
         external
         onlyOwner
     {
-        require(tokenGrants[_recipient].amount == 0, "Tokens already added to PermaVault.");
-        require(_vestingCliffInDays <= 10*365, "Cliff greater than 10 years");
-        require(_vestingDurationInDays <= 25*365, "Duration greater than 25 years");
+        require(tokenLocks[_recipient].amount == 0, "Tokens already added to PermaVault.");
+        require(_lockCliffInDays <= 10*365, "Cliff greater than 10 years");
+        require(_lockDurationInDays <= 25*365, "Duration greater than 25 years");
         
-        uint256 amountReleasedPerDay = _amount.div(_vestingDurationInDays);
+        uint256 amountReleasedPerDay = _amount.div(_lockDurationInDays);
         require(amountReleasedPerDay > 0, "amountReleasedPerDay > 0");
 
-        // Transfer the grant tokens under the control of the vesting contract
+        // Transfer the locked tokens under the control of the PermaVault
         require(token.transferFrom(owner(), address(this), _amount));
 
-        Grant memory grant = Grant({
-            startTime: currentTime() + _vestingCliffInDays * 1 days,
+        Lock memory lock = Lock({
+            startTime: currentTime() + _lockCliffInDays * 1 days,
             amount: _amount,
-            vestingDuration: _vestingDurationInDays,
+            lockDuration: _lockDurationInDays,
             daysClaimed: 0,
             totalClaimed: 0,
             recipient: _recipient
         });
-        tokenGrants[_recipient] = grant;
+        tokenLocks[_recipient] = lock;
         emit Deposit(_recipient);
     }
 
-    /// @notice Allows a grant recipient to claim their vested tokens. Errors if no tokens have vested
+    /// @notice Allows treasury to claim their unlocked tokens. Errors if no tokens have been unlocked
     function releaseUnlockedTokens() external {
-        uint16 daysVested;
-        uint256 amountVested;
-        (daysVested, amountVested) = calculateRelease(msg.sender);
-        require(amountVested > 0, "0 Tokens to release");
+        uint16 daysLocked;
+        uint256 amountLocked;
+        (daysLocked, amountLocked) = calculateRelease(msg.sender);
+        require(amountLocked > 0, "0 Tokens to release");
 
-        Grant storage tokenGrant = tokenGrants[msg.sender];
-        tokenGrant.daysClaimed = uint16(tokenGrant.daysClaimed.add(daysVested));
-        tokenGrant.totalClaimed = uint256(tokenGrant.totalClaimed.add(amountVested));
+        Lock storage tokenLock = tokenLocks[msg.sender];
+        tokenLock.daysClaimed = uint16(tokenLock.daysClaimed.add(daysLocked));
+        tokenLock.totalClaimed = uint256(tokenLock.totalClaimed.add(amountLocked));
         
-        require(token.transfer(tokenGrant.recipient, amountVested), "no tokens");
-        emit tokenReleased(tokenGrant.recipient, amountVested);
+        require(token.transfer(tokenLock.recipient, amountLocked), "no tokens");
+        emit tokenReleased(tokenLock.recipient, amountLocked);
     }
 
-    /// @notice Terminate token grant transferring all vested tokens to the `_recipient`
-    /// and returning all non-vested tokens to the contract owner
-    /// Secured to the contract owner only
-    /// @param _recipient address of the token grant recipient
-    /*function revokeTokenGrant(address _recipient) 
-        external 
-        onlyOwner
-    {
-        Grant storage tokenGrant = tokenGrants[_recipient];
-        uint16 daysVested;
-        uint256 amountVested;
-        (daysVested, amountVested) = calculateRelease(_recipient);
-
-        uint256 amountNotVested = (tokenGrant.amount.sub(tokenGrant.totalClaimed)).sub(amountVested);
-
-        require(token.transfer(owner(), amountNotVested));
-        require(token.transfer(_recipient, amountVested));
-
-        tokenGrant.startTime = 0;
-        tokenGrant.amount = 0;
-        tokenGrant.vestingDuration = 0;
-        tokenGrant.daysClaimed = 0;
-        tokenGrant.totalClaimed = 0;
-        tokenGrant.recipient = address(0);
-
-        emit GrantRevoked(_recipient, amountVested, amountNotVested);
-    }*/
-
     function getReleaseStartTime(address _recipient) private view returns(uint256) {
-        Grant storage tokenGrant = tokenGrants[_recipient];
-        return tokenGrant.startTime;
+        Lock storage tokenLock = tokenLocks[_recipient];
+        return tokenLock.startTime;
     }
 
     function getReleaseAmount(address _recipient) public view returns(uint256) {
-        Grant storage tokenGrant = tokenGrants[_recipient];
-        return tokenGrant.amount;
+        Lock storage tokenLock = tokenLocks[_recipient];
+        return tokenLock.amount;
     }
 
-    /// @notice Calculate the vested and unclaimed months and tokens available for `_grantId` to claim
-    /// Due to rounding errors once grant duration is reached, returns the entire left grant amount
+    /// @notice Calculate the locked tokens and time remaining for full unlock
+    /// Due to rounding errors once total lock duration is reached, returns the entire left unlocked amount
     /// Returns (0, 0) if cliff has not been reached
     function calculateRelease(address _recipient) public view returns (uint16, uint256) {
-        Grant storage tokenGrant = tokenGrants[_recipient];
+        Lock storage tokenLock = tokenLocks[_recipient];
 
-        require(tokenGrant.totalClaimed < tokenGrant.amount, "Tokens fully released");
+        require(tokenLock.totalClaimed < tokenLock.amount, "Tokens fully released");
 
-        // For grants created with a future start date, that hasn't been reached, return 0, 0
-        if (currentTime() < tokenGrant.startTime) {
+        // For locks created with a future start date, that hasn't been reached, return 0, 0
+        if (currentTime() < tokenLock.startTime) {
             return (0, 0);
         }
 
         // Check cliff was reached
-        uint elapsedDays = currentTime().sub(tokenGrant.startTime - 1 days).div(1 days);
+        uint elapsedDays = currentTime().sub(tokenLock.startTime - 1 days).div(1 days);
 
-        // If over vesting duration, all tokens vested
-        if (elapsedDays >= tokenGrant.vestingDuration) {
-            uint256 remainingGrant = tokenGrant.amount.sub(tokenGrant.totalClaimed);
-            return (tokenGrant.vestingDuration, remainingGrant);
+        // If over unlocking duration, all tokens unlock
+        if (elapsedDays >= tokenLock.lockDuration) {
+            uint256 remainingGrant = tokenLock.amount.sub(tokenLock.totalClaimed);
+            return (tokenLock.lockDuration, remainingGrant);
         } else {
-            uint16 daysVested = uint16(elapsedDays.sub(tokenGrant.daysClaimed));
-            uint256 amountReleasedPerDay = tokenGrant.amount.div(uint256(tokenGrant.vestingDuration));
-            uint256 amountVested = uint256(daysVested.mul(amountReleasedPerDay));
-            return (daysVested, amountVested);
+            uint16 daysLocked = uint16(elapsedDays.sub(tokenLock.daysClaimed));
+            uint256 amountReleasedPerDay = tokenLock.amount.div(uint256(tokenLock.lockDuration));
+            uint256 amountLocked = uint256(daysLocked.mul(amountReleasedPerDay));
+            return (daysLocked, amountLocked);
         }
     }
 
